@@ -1,6 +1,7 @@
 .env
 bin/
 .local/
+.pgdata/
 *.exe
 .DS_Store
 coverage.out

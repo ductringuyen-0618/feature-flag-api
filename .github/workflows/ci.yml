@@ -17,3 +17,29 @@ jobs:
         run: go vet ./...
       - name: Test
         run: go test ./...
+
+  integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: flags
+          POSTGRES_PASSWORD: flags
+          POSTGRES_DB: flags
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U flags -d flags"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 15
+    env:
+      DATABASE_URL: postgres://flags:flags@localhost:5432/flags?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.x"
+      - name: Postgres store integration
+        run: go test -tags=integration ./internal/store/postgres/...
