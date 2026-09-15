@@ -1,10 +1,23 @@
 # DigitalOcean App Platform
 
+## Live app
+
+| Field | Value |
+|-------|--------|
+| App name | `feature-flag-api` |
+| App ID | `7f32125f-1f35-4747-b6ac-f464e4538e34` |
+| Ingress | `https://feature-flag-api-r2hi6.ondigitalocean.app` |
+| Image | `registry.digitalocean.com/feature-flag-api/feature-flag-api` (DOCR) |
+| Postgres | App Platform bindable `db` (`db-s-dev-database`) |
+| Valkey | Managed cluster `feature-flag-valkey` (attached by `cluster_name`) |
+
+The app uses a DOCR image, not a GitHub source. App create with a GitHub repo failed with "GitHub user not authenticated". Keep the DOCR path.
+
 ## Resources
 
-1. Managed **Postgres** (smallest node is fine for the interview).
-2. Managed **Redis** or **Valkey** (Redis protocol). Prefer Valkey if Redis create is unavailable.
-3. App Platform app. The deploy script publishes a DOCR image with `ko` and creates the app (avoids needing DigitalOcean↔GitHub OAuth).
+1. Managed **Postgres** (App Platform bindable `db`).
+2. Managed **Valkey** (`feature-flag-valkey`, Redis protocol).
+3. App Platform app from [../deployments/app-platform.yaml](../deployments/app-platform.yaml).
 
 ## Environment
 
@@ -18,27 +31,56 @@
 
 App Platform `health_check.http_path` is `/readyz`. That path pings Postgres. `/healthz` is process liveness and stays HTTP 200 with `ok` or `degraded`.
 
-## Spec
+## Spec and local deploy
 
-See [../deployments/app-platform.yaml](../deployments/app-platform.yaml). Preferred path:
+See [../deployments/app-platform.yaml](../deployments/app-platform.yaml). Preferred local path:
 
 ```bash
 ./scripts/do-deploy.sh
 ```
 
-That script ensures Valkey, publishes `registry.digitalocean.com/feature-flag-api/feature-flag-api:latest`, then creates or updates the App Platform app. Postgres is an App Platform-managed `db-s-dev-database` bindable. Valkey attaches by `cluster_name: feature-flag-valkey`.
+That script publishes `registry.digitalocean.com/feature-flag-api/feature-flag-api:${IMAGE_TAG:-latest}` with `ko` (`linux/amd64`), then creates or updates the App Platform app. It reuses an existing Valkey cluster and registry when present.
+
+For an already-live stack (no create):
+
+```bash
+export DIGITALOCEAN_APP_ID=7f32125f-1f35-4747-b6ac-f464e4538e34
+UPDATE_ONLY=1 ./scripts/do-deploy.sh
+```
+
+Dry-run (validate the rendered spec only):
+
+```bash
+DRY_RUN=1 DIGITALOCEAN_APP_ID=7f32125f-1f35-4747-b6ac-f464e4538e34 UPDATE_ONLY=1 ./scripts/do-deploy.sh
+```
+
+## GitHub Actions deploy
+
+Workflow: [../.github/workflows/deploy.yml](../.github/workflows/deploy.yml).
+
+Triggers: push to `main`, and `workflow_dispatch`.
+
+On each run the workflow installs `doctl` and `ko`, publishes a DOCR image tagged with the commit SHA, then runs `UPDATE_ONLY=1 ./scripts/do-deploy.sh` so it updates the existing app and never creates Valkey, Postgres, registry, or a second app.
+
+### Secrets and variables
+
+Set these in the GitHub repo (Settings → Secrets and variables → Actions).
+
+| Name | Where | Required | Purpose |
+|------|--------|----------|---------|
+| `DIGITALOCEAN_ACCESS_TOKEN` | Secret | Yes | Personal access token with Apps read/write, Registry, and Databases. `doctl registry login` uses this token. No separate registry password. |
+| `DIGITALOCEAN_APP_ID` | Variable (preferred) or Secret | Yes | Live app ID `7f32125f-1f35-4747-b6ac-f464e4538e34`. |
+
+Do not commit tokens. Do not put the token in the app spec.
 
 ## Rollback
 
-Redeploy the previous deployment in App Platform, or `doctl apps create-deployment <app-id>`. Flag data lives in Postgres and survives app rollbacks.
+Redeploy the previous deployment in App Platform, or `doctl apps create-deployment 7f32125f-1f35-4747-b6ac-f464e4538e34`. Flag data lives in Postgres and survives app rollbacks.
 
 ## Verify
 
-After the app is `ACTIVE`:
-
 ```bash
-INGRESS="$(doctl apps get REPLACE_APP_ID --format DefaultIngress --no-header)"
-./scripts/verify.sh "$INGRESS"
+./scripts/verify.sh https://feature-flag-api-r2hi6.ondigitalocean.app
 ```
 
 Full local and production steps live in [VERIFY.md](VERIFY.md).
