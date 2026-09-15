@@ -35,6 +35,7 @@ func TestApplyInvalidationDoesNotStompNewerWriteThrough(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	old := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	created, err := svc.CreateFlag(ctx, flag.Flag{Name: "kill-switch", Enabled: true, RolloutPercent: 100})
 	if err != nil {
 		t.Fatal(err)
@@ -51,6 +52,7 @@ func TestApplyInvalidationDoesNotStompNewerWriteThrough(t *testing.T) {
 
 	stale := created
 	stale.Enabled = true
+	stale.UpdatedAt = old
 	stub.mu.Lock()
 	stub.flag = stale
 	stub.mu.Unlock()

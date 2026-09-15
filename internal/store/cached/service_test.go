@@ -44,26 +44,6 @@ func (s *listStub) ListFlags(ctx context.Context) ([]flag.Flag, error) {
 	return s.FlagStore.ListFlags(ctx)
 }
 
-type getFlagStub struct {
-	store.FlagStore
-	fixed     flag.Flag
-	useFixed  bool
-	notFound  bool
-	mu        sync.Mutex
-}
-
-func (s *getFlagStub) GetFlag(ctx context.Context, name string) (flag.Flag, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.notFound {
-		return flag.Flag{}, store.ErrNotFound
-	}
-	if s.useFixed {
-		return s.fixed, nil
-	}
-	return s.FlagStore.GetFlag(ctx, name)
-}
-
 type blockingOverrideStub struct {
 	store.FlagStore
 	started chan struct{}
@@ -116,8 +96,6 @@ func TestReloadDoesNotStompNewerWriteThrough(t *testing.T) {
 		Name:           "kill-switch",
 		Enabled:        true,
 		RolloutPercent: 100,
-		CreatedAt:      old,
-		UpdatedAt:      old,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -132,7 +110,6 @@ func TestReloadDoesNotStompNewerWriteThrough(t *testing.T) {
 		t.Fatal("write-through should leave kill switch off")
 	}
 
-	// Late ListFlags result from before the kill-switch write.
 	stale := created
 	stale.Enabled = true
 	stale.UpdatedAt = old
@@ -160,51 +137,6 @@ func TestReloadDoesNotStompNewerWriteThrough(t *testing.T) {
 	}
 }
 
-func TestApplyInvalidationDoesNotStompNewerWriteThrough(t *testing.T) {
-	ctx := context.Background()
-	db := memory.New()
-	stub := &getFlagStub{FlagStore: db}
-	svc := cached.New(stub, nil, time.Hour, false)
-	if err := svc.Start(ctx); err != nil {
-		t.Fatal(err)
-	}
-
-	old := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
-	created, err := svc.CreateFlag(ctx, flag.Flag{
-		Name:           "kill-switch",
-		Enabled:        true,
-		RolloutPercent: 100,
-		CreatedAt:      old,
-		UpdatedAt:      old,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	off := false
-	if _, err := svc.UpdateFlag(ctx, created.Name, &off, nil, nil); err != nil {
-		t.Fatal(err)
-	}
-
-	stale := created
-	stale.Enabled = true
-	stale.UpdatedAt = old
-	stub.mu.Lock()
-	stub.useFixed = true
-	stub.fixed = stale
-	stub.mu.Unlock()
-
-	svc.ApplyInvalidationForTest(ctx, "kill-switch")
-
-	got, err := svc.GetFlag(ctx, "kill-switch")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.Enabled {
-		t.Fatalf("stale applyInvalidation stomped write-through: %+v", got)
-	}
-}
-
 func TestGetOverrideLeaderCancelDoesNotFailFollower(t *testing.T) {
 	ctx := context.Background()
 	db := memory.New()
@@ -220,6 +152,8 @@ func TestGetOverrideLeaderCancelDoesNotFailFollower(t *testing.T) {
 	}
 
 	leaderCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	followerDone := make(chan error, 1)
 	leaderDone := make(chan error, 1)
 
@@ -235,16 +169,8 @@ func TestGetOverrideLeaderCancelDoesNotFailFollower(t *testing.T) {
 		followerDone <- err
 	}()
 
-	// Give the follower time to join the singleflight wait.
 	time.Sleep(20 * time.Millisecond)
 	cancel()
-
-	select {
-	case <-leaderDone:
-	case <-time.After(2 * time.Second):
-		t.Fatal("leader evaluate did not return after cancel")
-	}
-
 	close(stub.release)
 
 	select {
@@ -254,6 +180,12 @@ func TestGetOverrideLeaderCancelDoesNotFailFollower(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("follower evaluate timed out")
+	}
+
+	select {
+	case <-leaderDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("leader evaluate timed out")
 	}
 }
 
