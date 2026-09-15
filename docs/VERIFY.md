@@ -15,26 +15,35 @@ The script [`scripts/verify.sh`](../scripts/verify.sh) runs those checks against
 
 ## Local
 
-### Option A. Docker Compose (full stack)
+### Option A. Docker Compose via OrbStack (preferred on macOS)
 
-Install Docker Desktop, OrbStack, or the Docker Engine on the host that runs this repo. This environment may not have a Docker daemon. On Ubuntu:
-
-```bash
-sudo apt-get update
-sudo apt-get install -y docker.io docker-compose-v2
-sudo service docker start
-```
-
-Then from the repo root:
+This Cursor Linux workspace often runs **on** OrbStack but does **not** mount the host Docker socket (`/var/run/docker.sock`). Inside the workspace, `docker` cannot talk to OrbStack’s engine. Run Compose on the **Mac host** where OrbStack provides Docker:
 
 ```bash
+# On the Mac (OrbStack / Docker CLI), from a checkout of this repo:
 docker compose up --build -d
 ./scripts/verify.sh http://127.0.0.1:8080
 docker compose down
 ```
 
+To use Compose from inside a Cursor/OrbStack Linux machine instead, share the Docker socket into that environment (OrbStack → Docker → “Share Docker socket” / bind-mount `/var/run/docker.sock`), then:
+
+```bash
+docker compose up --build -d
+./scripts/verify.sh http://127.0.0.1:8080
+```
+
 Compose starts Postgres, Redis, and the API on port `8080`. The healthcheck probes `/readyz`.
 
+### Option A2. Docker Engine on Linux (no OrbStack)
+
+```bash
+sudo apt-get update
+sudo apt-get install -y docker.io docker-compose-v2
+sudo service docker start
+docker compose up --build -d
+./scripts/verify.sh http://127.0.0.1:8080
+```
 ### Option B. Go binary + Compose data stores only
 
 If the API image build is slow, run Postgres and Redis in Compose and the API with Go:
