@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -108,7 +109,7 @@ func TestBulkEvaluate(t *testing.T) {
 			t.Fatalf("create %s: %d", name, rr.Code)
 		}
 	}
-	req := httptest.NewRequest(http.MethodPost, "/v1/evaluate", bytes.NewBufferString(`{"user_id":"u","flags":["a","b","missing"]}`))
+	req := httptest.NewRequest(http.MethodPost, "/v1/evaluate", bytes.NewBufferString(`{"user_id":"u","flags":["a","b","a"]}`))
 	rr := httptest.NewRecorder()
 	h.ServeHTTP(rr, req)
 	if rr.Code != http.StatusOK {
@@ -122,6 +123,55 @@ func TestBulkEvaluate(t *testing.T) {
 	}
 	if len(out.Results) != 2 {
 		t.Fatalf("results=%v", out.Results)
+	}
+}
+
+func TestBulkEvaluateMissingFlag(t *testing.T) {
+	h := newTestServer(t)
+	req := httptest.NewRequest(http.MethodPost, "/v1/flags", bytes.NewBufferString(`{"name":"a","enabled":true,"rollout_percent":100}`))
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", rr.Code, rr.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/v1/evaluate", bytes.NewBufferString(`{"user_id":"u","flags":["a","missing"]}`))
+	rr = httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("bulk: %d %s", rr.Code, rr.Body.String())
+	}
+	var out map[string]string
+	if err := json.Unmarshal(rr.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if out["error"] != "flag not found" {
+		t.Fatalf("error=%q", out["error"])
+	}
+}
+
+func TestBulkEvaluateCap(t *testing.T) {
+	h := newTestServer(t)
+	names := make([]string, 101)
+	for i := range names {
+		names[i] = "f" + strconv.Itoa(i)
+	}
+	payload, err := json.Marshal(map[string]any{"user_id": "u", "flags": names})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/v1/evaluate", bytes.NewReader(payload))
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var out map[string]string
+	if err := json.Unmarshal(rr.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if out["error"] != "too many flags" {
+		t.Fatalf("error=%q", out["error"])
 	}
 }
 

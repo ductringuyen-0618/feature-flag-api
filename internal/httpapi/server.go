@@ -15,6 +15,9 @@ import (
 	"github.com/ductringuyen-0618/feature-flag-api/internal/store/cached"
 )
 
+const maxJSONBody = 1 << 20 // 1 MiB
+const maxBulkFlags = 100
+
 var identifier = regexp.MustCompile(`^[a-zA-Z0-9._-]{1,64}$`)
 
 type Server struct {
@@ -69,6 +72,7 @@ type createFlagReq struct {
 }
 
 func (s *Server) createFlag(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxJSONBody)
 	var req createFlagReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid JSON")
@@ -144,6 +148,7 @@ func (s *Server) patchFlag(w http.ResponseWriter, r *http.Request) {
 	if !requireID(w, name, "name") {
 		return
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxJSONBody)
 	var req patchFlagReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid JSON")
@@ -194,6 +199,7 @@ func (s *Server) putOverride(w http.ResponseWriter, r *http.Request) {
 	if !requireID(w, name, "name") || !requireID(w, userID, "user_id") {
 		return
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxJSONBody)
 	var req overrideReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid JSON")
@@ -259,6 +265,7 @@ type bulkEvalReq struct {
 }
 
 func (s *Server) evaluateBulk(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxJSONBody)
 	var req bulkEvalReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid JSON")
@@ -275,15 +282,32 @@ func (s *Server) evaluateBulk(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "flags is required")
 		return
 	}
+	if len(req.Flags) > maxBulkFlags {
+		writeErr(w, http.StatusBadRequest, "too many flags")
+		return
+	}
+	seen := make(map[string]struct{}, len(req.Flags))
+	unique := make([]string, 0, len(req.Flags))
 	for _, name := range req.Flags {
 		if !requireID(w, name, "name") {
 			return
 		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		unique = append(unique, name)
 	}
-	res, err := s.svc.EvaluateBulk(r.Context(), req.UserID, req.Flags)
+	res, err := s.svc.EvaluateBulk(r.Context(), req.UserID, unique)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "evaluate failed")
 		return
+	}
+	for _, name := range unique {
+		if _, ok := res[name]; !ok {
+			writeErr(w, http.StatusNotFound, "flag not found")
+			return
+		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"user_id": req.UserID, "results": res})
 }
