@@ -87,11 +87,14 @@ INGRESS="$(doctl apps get "$APP_ID" --format DefaultIngress --no-header)"
 echo "$INGRESS"
 ```
 
-3. Run the same smoke script against production:
+3. Run the smoke script, then the architecture claim script, against production:
 
 ```bash
 ./scripts/verify.sh "$INGRESS"
+./scripts/verify-architecture.sh "$INGRESS"
 ```
+
+`scripts/verify-architecture.sh` checks rule A, sticky/monotonic rollout, create 409, override vs kill, validation 400s, bulk fail-closed 404, and the create/patch/delete/override lifecycle. It skips Redis-down, Postgres-down, and multi-replica races (not safe on shared production). Each run uses a unique flag-name prefix and deletes those flags on exit.
 
 4. Optional manual probes:
 
