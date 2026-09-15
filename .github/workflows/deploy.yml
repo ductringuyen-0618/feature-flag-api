@@ -1,0 +1,53 @@
+name: deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-main
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install doctl
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.x"
+
+      - name: Install ko
+        run: go install github.com/google/ko@latest
+
+      - name: Deploy to App Platform
+        env:
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          DIGITALOCEAN_APP_ID: ${{ vars.DIGITALOCEAN_APP_ID || secrets.DIGITALOCEAN_APP_ID }}
+          IMAGE_TAG: ${{ github.sha }}
+          UPDATE_ONLY: "1"
+          KO_DEFAULT_PLATFORMS: linux/amd64
+        run: |
+          if [ -z "${DIGITALOCEAN_ACCESS_TOKEN}" ]; then
+            echo "Set repository secret DIGITALOCEAN_ACCESS_TOKEN (Apps read/write, Registry, Databases)." >&2
+            exit 1
+          fi
+          if [ -z "${DIGITALOCEAN_APP_ID}" ]; then
+            echo "Set repository variable or secret DIGITALOCEAN_APP_ID to the live App Platform app ID." >&2
+            exit 1
+          fi
+          export KO_BIN="$(go env GOPATH)/bin/ko"
+          chmod +x ./scripts/do-deploy.sh
+          ./scripts/do-deploy.sh
