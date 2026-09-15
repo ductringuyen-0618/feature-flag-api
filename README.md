@@ -1,6 +1,6 @@
 # Feature Flag REST API
 
-Production-oriented Go service for creating feature flags, managing global and per-user state, and evaluating availability with an in-memory snapshot hot path (Postgres durable store, Redis pub/sub + override cache).
+Production-oriented Go service for creating feature flags, managing global and per-user state, and evaluating availability with an in-memory snapshot hot path (Postgres durable store, Redis pub/sub for flag invalidation).
 
 ## Architecture
 
