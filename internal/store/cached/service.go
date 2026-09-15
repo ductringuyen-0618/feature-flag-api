@@ -14,8 +14,7 @@ import (
 )
 
 // Service is the application façade: Postgres SoT, in-memory flag snapshot,
-// Redis pub/sub + override cache. Evaluate never hits Postgres for flag config
-// on the warm path.
+// Redis pub/sub. Overrides are durable in Postgres only.
 type Service struct {
 	db    store.FlagStore
 	sync  *redissync.Sync // may be nil
@@ -181,9 +180,6 @@ func (s *Service) UpdateFlag(ctx context.Context, name string, enabled *bool, de
 	s.mu.Lock()
 	s.flags[out.Name] = out
 	s.mu.Unlock()
-	if s.sync != nil {
-		s.sync.InvalidateFlagOverrides(ctx, name)
-	}
 	s.publish(ctx, out.Name)
 	return out, nil
 }
@@ -195,9 +191,6 @@ func (s *Service) DeleteFlag(ctx context.Context, name string) error {
 	s.mu.Lock()
 	delete(s.flags, name)
 	s.mu.Unlock()
-	if s.sync != nil {
-		s.sync.InvalidateFlagOverrides(ctx, name)
-	}
 	s.publish(ctx, name)
 	return nil
 }
@@ -206,47 +199,21 @@ func (s *Service) SetOverride(ctx context.Context, o flag.Override) error {
 	if _, err := s.GetFlag(ctx, o.FlagName); err != nil {
 		return err
 	}
-	if err := s.db.SetOverride(ctx, o); err != nil {
-		return err
-	}
-	if s.sync != nil {
-		s.sync.SetOverride(ctx, o.FlagName, o.UserID, true, o.Enabled)
-	}
-	return nil
+	return s.db.SetOverride(ctx, o)
 }
 
 func (s *Service) DeleteOverride(ctx context.Context, flagName, userID string) error {
-	if err := s.db.DeleteOverride(ctx, flagName, userID); err != nil {
-		return err
-	}
-	if s.sync != nil {
-		s.sync.InvalidateOverride(ctx, flagName, userID)
-	}
-	return nil
+	return s.db.DeleteOverride(ctx, flagName, userID)
 }
 
 func (s *Service) getOverride(ctx context.Context, flagName, userID string) (*flag.Override, error) {
-	if s.sync != nil {
-		if enabled, found, ok := s.sync.GetOverride(ctx, flagName, userID); ok {
-			if !found {
-				return nil, nil
-			}
-			return &flag.Override{FlagName: flagName, UserID: userID, Enabled: enabled}, nil
-		}
-	}
 	v, err, _ := s.sf.Do(flagName+"\x00"+userID, func() (any, error) {
 		o, err := s.db.GetOverride(ctx, flagName, userID)
 		if errors.Is(err, store.ErrNotFound) {
-			if s.sync != nil {
-				s.sync.SetOverride(ctx, flagName, userID, false, false)
-			}
-			return (*flag.Override)(nil), nil
+			return nil, nil
 		}
 		if err != nil {
 			return nil, err
-		}
-		if s.sync != nil {
-			s.sync.SetOverride(ctx, flagName, userID, true, o.Enabled)
 		}
 		return &o, nil
 	})
@@ -259,7 +226,7 @@ func (s *Service) getOverride(ctx context.Context, flagName, userID string) (*fl
 	return v.(*flag.Override), nil
 }
 
-// Evaluate loads flag from snapshot and override from cache/DB, then runs pure eval.
+// Evaluate loads the flag from the snapshot and the override from Postgres.
 func (s *Service) Evaluate(ctx context.Context, flagName, userID string) (flag.Result, error) {
 	f, err := s.GetFlag(ctx, flagName)
 	if err != nil {

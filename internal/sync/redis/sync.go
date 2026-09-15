@@ -2,23 +2,19 @@ package redis
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
-	"time"
 
 	goredis "github.com/redis/go-redis/v9"
 )
 
 const changedChannel = "flags:changed"
 
-// Sync handles pub/sub invalidation and short-TTL override caching.
-// Redis is optional: failures degrade to Postgres-backed paths.
+// Sync handles pub/sub invalidation for flag snapshot refresh.
+// Redis is optional: failures degrade to local reload polling.
 type Sync struct {
 	client *goredis.Client
-	ttl    time.Duration
 }
 
-func New(ctx context.Context, redisURL string, overrideTTL time.Duration) (*Sync, error) {
+func New(ctx context.Context, redisURL string) (*Sync, error) {
 	opt, err := goredis.ParseURL(redisURL)
 	if err != nil {
 		return nil, err
@@ -28,10 +24,7 @@ func New(ctx context.Context, redisURL string, overrideTTL time.Duration) (*Sync
 		_ = client.Close()
 		return nil, err
 	}
-	if overrideTTL <= 0 {
-		overrideTTL = time.Minute
-	}
-	return &Sync{client: client, ttl: overrideTTL}, nil
+	return &Sync{client: client}, nil
 }
 
 func (s *Sync) Ping(ctx context.Context) error {
@@ -70,54 +63,4 @@ func (s *Sync) Subscribe(ctx context.Context, fn func(flagName string)) error {
 		}
 	}()
 	return nil
-}
-
-type overrideCacheVal struct {
-	Found   bool `json:"found"`
-	Enabled bool `json:"enabled"`
-}
-
-func overrideKey(flagName, userID string) string {
-	return fmt.Sprintf("override:%s:%s", flagName, userID)
-}
-
-func (s *Sync) GetOverride(ctx context.Context, flagName, userID string) (enabled bool, found bool, ok bool) {
-	raw, err := s.client.Get(ctx, overrideKey(flagName, userID)).Result()
-	if err != nil {
-		return false, false, false
-	}
-	var v overrideCacheVal
-	if json.Unmarshal([]byte(raw), &v) != nil {
-		return false, false, false
-	}
-	return v.Enabled, v.Found, true
-}
-
-func (s *Sync) SetOverride(ctx context.Context, flagName, userID string, found, enabled bool) {
-	raw, err := json.Marshal(overrideCacheVal{Found: found, Enabled: enabled})
-	if err != nil {
-		return
-	}
-	_ = s.client.Set(ctx, overrideKey(flagName, userID), raw, s.ttl).Err()
-}
-
-func (s *Sync) InvalidateOverride(ctx context.Context, flagName, userID string) {
-	_ = s.client.Del(ctx, overrideKey(flagName, userID)).Err()
-}
-
-func (s *Sync) InvalidateFlagOverrides(ctx context.Context, flagName string) {
-	// Best-effort pattern delete; interview-scale.
-	iter := s.client.Scan(ctx, 0, "override:"+flagName+":*", 100).Iterator()
-	var keys []string
-	for iter.Next(ctx) {
-		keys = append(keys, iter.Val())
-	}
-	if len(keys) > 0 {
-		_ = s.client.Del(ctx, keys...).Err()
-	}
-}
-
-// BumpVersion is reserved for clients that want versioned keys; kept for docs/tests.
-func (s *Sync) BumpVersion(ctx context.Context, flagName string) (int64, error) {
-	return s.client.Incr(ctx, "flag:version:"+flagName).Result()
 }
