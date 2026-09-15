@@ -269,3 +269,71 @@ func TestOverrideReadsFromStore(t *testing.T) {
 		t.Fatalf("after delete eval = %+v", res)
 	}
 }
+
+func TestDeleteFlagDropsSnapshotAndCascadesOverrides(t *testing.T) {
+	ctx := context.Background()
+	db := memory.New()
+	svc := newService(t, db)
+
+	created, err := svc.CreateFlag(ctx, flag.Flag{Name: "doomed", Enabled: true, RolloutPercent: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SetOverride(ctx, flag.Override{FlagName: created.Name, UserID: "alice", Enabled: false}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := svc.DeleteFlag(ctx, "doomed"); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := svc.GetFlag(ctx, "doomed"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("GetFlag after delete = %v", err)
+	}
+	if _, err := svc.Evaluate(ctx, "doomed", "alice"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("Evaluate after delete = %v", err)
+	}
+	list, err := svc.ListFlags(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range list {
+		if f.Name == "doomed" {
+			t.Fatalf("snapshot still has doomed: %+v", list)
+		}
+	}
+	if _, err := db.GetOverride(ctx, "doomed", "alice"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("override after cascade = %v", err)
+	}
+
+	if err := svc.DeleteFlag(ctx, "doomed"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("second DeleteFlag = %v", err)
+	}
+}
+
+func TestEvaluateBulkSkipsMissingNames(t *testing.T) {
+	ctx := context.Background()
+	svc := newService(t, nil)
+
+	if _, err := svc.CreateFlag(ctx, flag.Flag{Name: "present", Enabled: true, RolloutPercent: 100}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := svc.EvaluateBulk(ctx, "alice", []string{"present", "missing", "also-missing"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("results=%v want only present", got)
+	}
+	res, ok := got["present"]
+	if !ok {
+		t.Fatalf("missing present key: %v", got)
+	}
+	if !res.Enabled || res.Reason != flag.ReasonBooleanToggle {
+		t.Fatalf("present result = %+v", res)
+	}
+	if _, ok := got["missing"]; ok {
+		t.Fatalf("missing name should be absent: %v", got)
+	}
+}

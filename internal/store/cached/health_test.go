@@ -21,3 +21,10 @@ func TestHealthDegradedWhenRedisWantedButMissing(t *testing.T) {
 		t.Fatalf("Health=%q", got)
 	}
 }
+
+func TestReady(t *testing.T) {
+	svc := New(memory.New(), nil, time.Hour, false)
+	if err := svc.Ready(context.Background()); err != nil {
+		t.Fatalf("Ready=%v", err)
+	}
+}
