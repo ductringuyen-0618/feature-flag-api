@@ -217,9 +217,11 @@ func (s *Service) getOverride(ctx context.Context, flagName, userID string) (*fl
 
 // Evaluate loads the flag from the snapshot and the override from Postgres.
 func (s *Service) Evaluate(ctx context.Context, flagName, userID string) (flag.Result, error) {
-	f, err := s.GetFlag(ctx, flagName)
-	if err != nil {
-		return flag.Result{}, err
+	s.mu.RLock()
+	f, ok := s.flags[flagName]
+	s.mu.RUnlock()
+	if !ok {
+		return flag.Result{}, store.ErrNotFound
 	}
 	ovr, err := s.getOverride(ctx, flagName, userID)
 	if err != nil {

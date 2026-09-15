@@ -60,6 +60,42 @@ func TestReloadKeepsSnapshotOnEmptyList(t *testing.T) {
 	}
 }
 
+func TestEvaluateMissesSnapshotWithoutDBFill(t *testing.T) {
+	ctx := context.Background()
+	db := memory.New()
+	svc := cached.New(db, nil, time.Hour)
+
+	if _, err := db.CreateFlag(ctx, flag.Flag{Name: "only-in-db", Enabled: true, RolloutPercent: 100}); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := svc.Evaluate(ctx, "only-in-db", "alice")
+	if !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("evaluate missing snapshot = %v", err)
+	}
+
+	got, err := svc.GetFlag(ctx, "only-in-db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Name != "only-in-db" {
+		t.Fatalf("admin get = %+v", got)
+	}
+
+	_, err = svc.Evaluate(ctx, "only-in-db", "alice")
+	if !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("evaluate after admin get = %v", err)
+	}
+
+	list, err := svc.ListFlags(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 0 {
+		t.Fatalf("snapshot filled = %+v", list)
+	}
+}
+
 func TestOverrideReadsFromStore(t *testing.T) {
 	ctx := context.Background()
 	db := memory.New()
