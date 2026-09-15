@@ -1,0 +1,493 @@
+{
+  "info": {
+    "_postman_id": "23c04208-ef89-44de-ba45-733ded4c17b4",
+    "name": "Feature Flag API \u2014 Manual Demo",
+    "description": "Ordered demo against the Feature Flag REST API.\n\n**Setup:** Import this collection and the companion environment `Feature-Flag-API.postman_environment.json` (or set `baseUrl`, `flagName`, `userId`).\n\n**Production base URL:** `https://feature-flag-api-r2hi6.ondigitalocean.app`\n\n**Demo order (run top to bottom in the Demo folder):**\n1. Health / Ready\n2. Create flag\n3. Evaluate (on)\n4. Kill switch off \u2192 evaluate off\n5. Override on \u2192 evaluate override\n6. Bulk evaluate\n7. Validation 400\n8. Get / List / Cleanup\n\nSee `docs/production-proof.md` for a captured production transcript.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "https://feature-flag-api-r2hi6.ondigitalocean.app"
+    },
+    {
+      "key": "flagName",
+      "value": "demo_checkout"
+    },
+    {
+      "key": "userId",
+      "value": "demo_alice"
+    }
+  ],
+  "item": [
+    {
+      "name": "0. Health",
+      "item": [
+        {
+          "name": "GET /healthz",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/healthz",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "healthz"
+              ]
+            },
+            "description": "Process liveness. Always HTTP 200 with status ok or degraded."
+          },
+          "response": []
+        },
+        {
+          "name": "GET /readyz",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/readyz",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "readyz"
+              ]
+            },
+            "description": "Postgres readiness. HTTP 200 ready or 503 not ready. App Platform probes this."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "1. Demo \u2014 happy path",
+      "description": "Run these in order for a live demo. Change flagName if the name already exists (409).",
+      "item": [
+        {
+          "name": "Create flag",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/flags",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "flags"
+              ]
+            },
+            "description": "Expect 201. Use a unique flagName if you get 409.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{flagName}}\",\n  \"description\": \"manual demo\",\n  \"enabled\": true,\n  \"rollout_percent\": 100\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Evaluate (enabled)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/evaluate/{{flagName}}?user_id={{userId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "evaluate",
+                "{{flagName}}"
+              ],
+              "query": [
+                {
+                  "key": "user_id",
+                  "value": "{{userId}}"
+                }
+              ]
+            },
+            "description": "Expect enabled=true, reason=BOOLEAN_TOGGLE."
+          },
+          "response": []
+        },
+        {
+          "name": "Kill switch off",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/flags/{{flagName}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "flags",
+                "{{flagName}}"
+              ]
+            },
+            "description": "Global kill switch.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"enabled\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Evaluate (disabled)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/evaluate/{{flagName}}?user_id={{userId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "evaluate",
+                "{{flagName}}"
+              ],
+              "query": [
+                {
+                  "key": "user_id",
+                  "value": "{{userId}}"
+                }
+              ]
+            },
+            "description": "Expect enabled=false, reason=FLAG_DISABLED."
+          },
+          "response": []
+        },
+        {
+          "name": "Set user override on",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/flags/{{flagName}}/users/{{userId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "flags",
+                "{{flagName}}",
+                "users",
+                "{{userId}}"
+              ]
+            },
+            "description": "Per-user override wins over kill switch (rule A).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"enabled\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Evaluate (override)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/evaluate/{{flagName}}?user_id={{userId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "evaluate",
+                "{{flagName}}"
+              ],
+              "query": [
+                {
+                  "key": "user_id",
+                  "value": "{{userId}}"
+                }
+              ]
+            },
+            "description": "Expect enabled=true, reason=OVERRIDE."
+          },
+          "response": []
+        },
+        {
+          "name": "Bulk evaluate",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/evaluate",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "evaluate"
+              ]
+            },
+            "description": "Expect results map with the same override reason.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"{{userId}}\",\n  \"flags\": [\"{{flagName}}\"]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "2. Demo \u2014 validation & reads",
+      "item": [
+        {
+          "name": "Invalid flag name (400)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/flags",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "flags"
+              ]
+            },
+            "description": "Expect 400 invalid name.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"bad:name\",\n  \"enabled\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get flag",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/flags/{{flagName}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "flags",
+                "{{flagName}}"
+              ]
+            },
+            "description": ""
+          },
+          "response": []
+        },
+        {
+          "name": "List flags",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/flags",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "flags"
+              ]
+            },
+            "description": ""
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "3. Cleanup",
+      "item": [
+        {
+          "name": "Clear override",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/flags/{{flagName}}/users/{{userId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "flags",
+                "{{flagName}}",
+                "users",
+                "{{userId}}"
+              ]
+            },
+            "description": "Expect 204."
+          },
+          "response": []
+        },
+        {
+          "name": "Delete flag",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/flags/{{flagName}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "flags",
+                "{{flagName}}"
+              ]
+            },
+            "description": "Expect 204. Cascades overrides."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "4. Optional \u2014 percentage rollout",
+      "item": [
+        {
+          "name": "Create 25% rollout flag",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/flags",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "flags"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{flagName}}_rollout\",\n  \"description\": \"25 percent sticky rollout\",\n  \"enabled\": true,\n  \"rollout_percent\": 25\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Evaluate rollout",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/evaluate/{{flagName}}_rollout?user_id={{userId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "evaluate",
+                "{{flagName}}_rollout"
+              ],
+              "query": [
+                {
+                  "key": "user_id",
+                  "value": "{{userId}}"
+                }
+              ]
+            },
+            "description": "Sticky bucket: fnv32a(flagName + ':' + userId) % 100. Reason PERCENTAGE_ROLLOUT or PERCENTAGE_EXCLUDED."
+          },
+          "response": []
+        },
+        {
+          "name": "Delete rollout flag",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/flags/{{flagName}}_rollout",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "flags",
+                "{{flagName}}_rollout"
+              ]
+            },
+            "description": ""
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}
