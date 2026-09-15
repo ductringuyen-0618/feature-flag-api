@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"regexp"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -13,6 +14,11 @@ import (
 	"github.com/ductringuyen-0618/feature-flag-api/internal/store"
 	"github.com/ductringuyen-0618/feature-flag-api/internal/store/cached"
 )
+
+const maxJSONBody = 1 << 20 // 1 MiB
+const maxBulkFlags = 100
+
+var identifier = regexp.MustCompile(`^[a-zA-Z0-9._-]{1,64}$`)
 
 type Server struct {
 	svc *cached.Service
@@ -66,6 +72,7 @@ type createFlagReq struct {
 }
 
 func (s *Server) createFlag(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxJSONBody)
 	var req createFlagReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid JSON")
@@ -74,6 +81,9 @@ func (s *Server) createFlag(w http.ResponseWriter, r *http.Request) {
 	req.Name = strings.TrimSpace(req.Name)
 	if req.Name == "" {
 		writeErr(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	if !requireID(w, req.Name, "name") {
 		return
 	}
 	pct := 100
@@ -112,6 +122,9 @@ func (s *Server) listFlags(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) getFlag(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
+	if !requireID(w, name, "name") {
+		return
+	}
 	f, err := s.svc.GetFlag(r.Context(), name)
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "flag not found")
@@ -132,6 +145,10 @@ type patchFlagReq struct {
 
 func (s *Server) patchFlag(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
+	if !requireID(w, name, "name") {
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxJSONBody)
 	var req patchFlagReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid JSON")
@@ -159,6 +176,9 @@ func (s *Server) patchFlag(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) deleteFlag(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
+	if !requireID(w, name, "name") {
+		return
+	}
 	if err := s.svc.DeleteFlag(r.Context(), name); errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "flag not found")
 		return
@@ -176,6 +196,10 @@ type overrideReq struct {
 func (s *Server) putOverride(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
 	userID := chi.URLParam(r, "userID")
+	if !requireID(w, name, "name") || !requireID(w, userID, "user_id") {
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxJSONBody)
 	var req overrideReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid JSON")
@@ -200,6 +224,9 @@ func (s *Server) putOverride(w http.ResponseWriter, r *http.Request) {
 func (s *Server) deleteOverride(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
 	userID := chi.URLParam(r, "userID")
+	if !requireID(w, name, "name") || !requireID(w, userID, "user_id") {
+		return
+	}
 	if err := s.svc.DeleteOverride(r.Context(), name, userID); errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "override not found")
 		return
@@ -215,6 +242,9 @@ func (s *Server) evaluateOne(w http.ResponseWriter, r *http.Request) {
 	userID := r.URL.Query().Get("user_id")
 	if userID == "" {
 		writeErr(w, http.StatusBadRequest, "user_id is required")
+		return
+	}
+	if !requireID(w, name, "name") || !requireID(w, userID, "user_id") {
 		return
 	}
 	res, err := s.svc.Evaluate(r.Context(), name, userID)
@@ -235,6 +265,7 @@ type bulkEvalReq struct {
 }
 
 func (s *Server) evaluateBulk(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxJSONBody)
 	var req bulkEvalReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid JSON")
@@ -244,16 +275,49 @@ func (s *Server) evaluateBulk(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "user_id is required")
 		return
 	}
+	if !requireID(w, req.UserID, "user_id") {
+		return
+	}
 	if len(req.Flags) == 0 {
 		writeErr(w, http.StatusBadRequest, "flags is required")
 		return
 	}
-	res, err := s.svc.EvaluateBulk(r.Context(), req.UserID, req.Flags)
+	if len(req.Flags) > maxBulkFlags {
+		writeErr(w, http.StatusBadRequest, "too many flags")
+		return
+	}
+	seen := make(map[string]struct{}, len(req.Flags))
+	unique := make([]string, 0, len(req.Flags))
+	for _, name := range req.Flags {
+		if !requireID(w, name, "name") {
+			return
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		unique = append(unique, name)
+	}
+	res, err := s.svc.EvaluateBulk(r.Context(), req.UserID, unique)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "evaluate failed")
 		return
 	}
+	for _, name := range unique {
+		if _, ok := res[name]; !ok {
+			writeErr(w, http.StatusNotFound, "flag not found")
+			return
+		}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"user_id": req.UserID, "results": res})
+}
+
+func requireID(w http.ResponseWriter, value, field string) bool {
+	if identifier.MatchString(value) {
+		return true
+	}
+	writeErr(w, http.StatusBadRequest, "invalid "+field)
+	return false
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
