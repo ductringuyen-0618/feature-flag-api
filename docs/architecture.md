@@ -31,8 +31,9 @@ flowchart LR
 
 | Failure | Behavior |
 |---------|----------|
-| Redis down after boot | Serve last flag snapshot; override lookups fall through to Postgres; `/healthz` → `degraded` |
-| Postgres down | `/readyz` fails; writes/evals that need overrides may error |
+| Redis down after boot | Serve last flag snapshot; override lookups fall through to Postgres; `/healthz` returns `degraded` |
+| Redis never connected (`REDIS_URL` set) | Run without pub/sub or override cache; `/healthz` returns `degraded` |
+| Postgres down | `/readyz` fails; writes and evals that need overrides may error |
 | Missed pub/sub | Full snapshot reload every `RELOAD_INTERVAL` (default 10s) bounds staleness |
 | Cache stampede on overrides | `singleflight` per `(flag, user)` |
 

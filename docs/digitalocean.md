@@ -16,7 +16,7 @@
 | `RELOAD_INTERVAL` | `10s` |
 | `OVERRIDE_CACHE_TTL` | `60s` |
 
-Health check path: `/healthz` (HTTP 200 even when `degraded`).
+App Platform `health_check.http_path` is `/readyz`. That path pings Postgres. `/healthz` is process liveness and stays HTTP 200 with `ok` or `degraded`.
 
 ## Spec
 
