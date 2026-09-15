@@ -31,3 +31,14 @@ Or attach databases in the App Platform UI and map connection strings to env var
 ## Rollback
 
 Redeploy the previous deployment in App Platform, or `doctl apps create-deployment <app-id>`. Flag data lives in Postgres and survives app rollbacks.
+
+## Verify
+
+After the app is `ACTIVE`:
+
+```bash
+INGRESS="$(doctl apps get REPLACE_APP_ID --format DefaultIngress --no-header)"
+./scripts/verify.sh "$INGRESS"
+```
+
+Full local and production steps live in [VERIFY.md](VERIFY.md).
