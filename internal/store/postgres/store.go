@@ -14,6 +14,9 @@ import (
 	"github.com/ductringuyen-0618/feature-flag-api/internal/store"
 )
 
+// schema.sql is the sole DDL source for this store (go:embed). Apply on connect
+// with CREATE IF NOT EXISTS; there is no separate migrations/ runner.
+//
 //go:embed schema.sql
 var schemaFS embed.FS
 
@@ -31,14 +34,14 @@ func New(ctx context.Context, databaseURL string) (*Store, error) {
 		return nil, err
 	}
 	s := &Store{pool: pool}
-	if err := s.Migrate(ctx); err != nil {
+	if err := s.ensureSchema(ctx); err != nil {
 		pool.Close()
 		return nil, err
 	}
 	return s, nil
 }
 
-func (s *Store) Migrate(ctx context.Context) error {
+func (s *Store) ensureSchema(ctx context.Context) error {
 	sql, err := schemaFS.ReadFile("schema.sql")
 	if err != nil {
 		return err
