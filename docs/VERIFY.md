@@ -96,6 +96,8 @@ echo "$INGRESS"
 
 `scripts/verify-architecture.sh` checks rule A, sticky/monotonic rollout, create 409, override vs kill, validation 400s, bulk fail-closed 404, and the create/patch/delete/override lifecycle. It skips Redis-down, Postgres-down, and multi-replica races (not safe on shared production). Each run uses a unique flag-name prefix and deletes those flags on exit.
 
+A captured production transcript (request + response for the full demo path) is in [production-proof.md](production-proof.md). For a manual Postman demo, import [../postman/](../postman/) (see that folder’s README).
+
 4. Optional manual probes:
 
 ```bash
