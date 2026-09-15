@@ -82,4 +82,4 @@ Redeploy the previous deployment in App Platform, or `doctl apps create-deployme
 ./scripts/verify.sh https://feature-flag-api-r2hi6.ondigitalocean.app
 ```
 
-Full local and production steps live in [VERIFY.md](VERIFY.md).
+Full local and production steps live in [VERIFY.md](VERIFY.md). Captured production request/response proof: [production-proof.md](production-proof.md). Manual Postman demo: [../postman/](../postman/).

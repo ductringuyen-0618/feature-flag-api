@@ -90,3 +90,5 @@ go test ./...
 ## Deploy (DigitalOcean App Platform)
 
 See [docs/digitalocean.md](docs/digitalocean.md) and [deployments/app-platform.yaml](deployments/app-platform.yaml).
+
+Production smoke proof (live request/response): [docs/production-proof.md](docs/production-proof.md). Postman demo collection: [postman/](postman/).
