@@ -4,7 +4,7 @@
 
 1. Managed **Postgres** (smallest node is fine for the interview).
 2. Managed **Redis** or **Valkey** (Redis protocol). Prefer Valkey if Redis create is unavailable.
-3. App Platform app from this GitHub repo, Dockerfile build.
+3. App Platform app. The deploy script publishes a DOCR image with `ko` and creates the app (avoids needing DigitalOcean↔GitHub OAuth).
 
 ## Environment
 
@@ -20,13 +20,13 @@ App Platform `health_check.http_path` is `/readyz`. That path pings Postgres. `/
 
 ## Spec
 
-See [../deployments/app-platform.yaml](../deployments/app-platform.yaml). Replace placeholders, then:
+See [../deployments/app-platform.yaml](../deployments/app-platform.yaml). Preferred path:
 
 ```bash
-doctl apps create --spec deployments/app-platform.yaml
+./scripts/do-deploy.sh
 ```
 
-Or attach databases in the App Platform UI and map connection strings to env vars.
+That script ensures Valkey, publishes `registry.digitalocean.com/feature-flag-api/feature-flag-api:latest`, then creates or updates the App Platform app. Postgres is an App Platform-managed `db-s-dev-database` bindable. Valkey attaches by `cluster_name: feature-flag-valkey`.
 
 ## Rollback
 

@@ -15,11 +15,12 @@ databases:
     cluster_name: feature-flag-valkey
 services:
   - name: api
-    github:
-      repo: ductringuyen-0618/feature-flag-api
-      branch: main
-      deploy_on_push: true
-    dockerfile_path: Dockerfile
+    # DOCR image avoids requiring DigitalOcean↔GitHub OAuth in this environment.
+    # Re-link GitHub later if you want deploy_on_push from the repo.
+    image:
+      registry_type: DOCR
+      repository: feature-flag-api
+      tag: latest
     http_port: 8080
     instance_count: 1
     instance_size_slug: basic-xxs
