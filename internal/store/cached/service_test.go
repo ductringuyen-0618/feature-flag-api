@@ -3,6 +3,7 @@ package cached_test
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -27,16 +28,40 @@ func newService(t *testing.T, db store.FlagStore) *cached.Service {
 type listStub struct {
 	store.FlagStore
 	emptyList bool
+	fixedList []flag.Flag
+	useFixed  bool
 }
 
 func (s *listStub) ListFlags(ctx context.Context) ([]flag.Flag, error) {
+	if s.useFixed {
+		out := make([]flag.Flag, len(s.fixedList))
+		copy(out, s.fixedList)
+		return out, nil
+	}
 	if s.emptyList {
 		return nil, nil
 	}
 	return s.FlagStore.ListFlags(ctx)
 }
 
-func TestReloadKeepsSnapshotOnEmptyList(t *testing.T) {
+type blockingOverrideStub struct {
+	store.FlagStore
+	started chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (s *blockingOverrideStub) GetOverride(ctx context.Context, flagName, userID string) (flag.Override, error) {
+	s.once.Do(func() { close(s.started) })
+	select {
+	case <-s.release:
+		return flag.Override{FlagName: flagName, UserID: userID, Enabled: true}, nil
+	case <-ctx.Done():
+		return flag.Override{}, ctx.Err()
+	}
+}
+
+func TestReloadClearsSnapshotOnEmptyList(t *testing.T) {
 	ctx := context.Background()
 	db := memory.New()
 	stub := &listStub{FlagStore: db}
@@ -55,8 +80,112 @@ func TestReloadKeepsSnapshotOnEmptyList(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 1 || got[0].Name != "keep-me" {
-		t.Fatalf("snapshot after empty reload = %+v", got)
+	if len(got) != 0 {
+		t.Fatalf("snapshot after empty SoT reload = %+v, want cleared", got)
+	}
+}
+
+func TestReloadDoesNotStompNewerWriteThrough(t *testing.T) {
+	ctx := context.Background()
+	db := memory.New()
+	stub := &listStub{FlagStore: db}
+	svc := newService(t, stub)
+
+	old := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	created, err := svc.CreateFlag(ctx, flag.Flag{
+		Name:           "kill-switch",
+		Enabled:        true,
+		RolloutPercent: 100,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	off := false
+	updated, err := svc.UpdateFlag(ctx, created.Name, &off, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Enabled {
+		t.Fatal("write-through should leave kill switch off")
+	}
+
+	stale := created
+	stale.Enabled = true
+	stale.UpdatedAt = old
+	stub.useFixed = true
+	stub.fixedList = []flag.Flag{stale}
+
+	if err := svc.Reload(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := svc.GetFlag(ctx, "kill-switch")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Enabled {
+		t.Fatalf("stale reload stomped write-through: %+v", got)
+	}
+
+	res, err := svc.Evaluate(ctx, "kill-switch", "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Enabled {
+		t.Fatalf("evaluate after stale reload = %+v, want kill switch off", res)
+	}
+}
+
+func TestGetOverrideLeaderCancelDoesNotFailFollower(t *testing.T) {
+	ctx := context.Background()
+	db := memory.New()
+	stub := &blockingOverrideStub{
+		FlagStore: db,
+		started:   make(chan struct{}),
+		release:   make(chan struct{}),
+	}
+	svc := newService(t, stub)
+
+	if _, err := svc.CreateFlag(ctx, flag.Flag{Name: "checkout", Enabled: true, RolloutPercent: 100}); err != nil {
+		t.Fatal(err)
+	}
+
+	leaderCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	followerDone := make(chan error, 1)
+	leaderDone := make(chan error, 1)
+
+	go func() {
+		_, err := svc.Evaluate(leaderCtx, "checkout", "alice")
+		leaderDone <- err
+	}()
+
+	<-stub.started
+
+	go func() {
+		_, err := svc.Evaluate(context.Background(), "checkout", "alice")
+		followerDone <- err
+	}()
+
+	time.Sleep(20 * time.Millisecond)
+	cancel()
+	close(stub.release)
+
+	select {
+	case err := <-followerDone:
+		if err != nil {
+			t.Fatalf("follower evaluate after leader cancel = %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("follower evaluate timed out")
+	}
+
+	select {
+	case <-leaderDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("leader evaluate timed out")
 	}
 }
 

@@ -86,11 +86,15 @@ func (s *Service) Reload(ctx context.Context) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	// An empty ListFlags is more often a blip than a true wipe of a warm snapshot.
-	if len(next) == 0 && len(s.flags) > 0 {
-		return nil
+	merged := make(map[string]flag.Flag, len(next))
+	for name, incoming := range next {
+		if cur, ok := s.flags[name]; ok && cur.UpdatedAt.After(incoming.UpdatedAt) {
+			merged[name] = cur
+			continue
+		}
+		merged[name] = incoming
 	}
-	s.flags = next
+	s.flags = merged
 	return nil
 }
 
@@ -107,6 +111,9 @@ func (s *Service) applyInvalidation(ctx context.Context, name string) {
 		return
 	}
 	if err != nil {
+		return
+	}
+	if cur, ok := s.flags[name]; ok && cur.UpdatedAt.After(f.UpdatedAt) {
 		return
 	}
 	s.flags[name] = f
@@ -198,9 +205,13 @@ func (s *Service) DeleteOverride(ctx context.Context, flagName, userID string) e
 	return s.db.DeleteOverride(ctx, flagName, userID)
 }
 
+const overrideLookupTimeout = 2 * time.Second
+
 func (s *Service) getOverride(ctx context.Context, flagName, userID string) (*flag.Override, error) {
 	v, err, _ := s.sf.Do(flagName+"\x00"+userID, func() (any, error) {
-		o, err := s.db.GetOverride(ctx, flagName, userID)
+		dbCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), overrideLookupTimeout)
+		defer cancel()
+		o, err := s.db.GetOverride(dbCtx, flagName, userID)
 		if errors.Is(err, store.ErrNotFound) {
 			return nil, nil
 		}

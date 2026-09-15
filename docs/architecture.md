@@ -92,7 +92,7 @@ That window is bounded by `RELOAD_INTERVAL` when Redis is absent or messages are
 On the evaluate hot path:
 
 - `RLock` the in-memory flag map
-- `singleflight` coalesce concurrent override reads for the same `(flag, user)`
+- `singleflight` coalesce concurrent override reads for the same `(flag, user)`, with the shared DB call detached from the leader's cancelable context and bounded by a short timeout
 - one Postgres override lookup (or a coalesced shared result)
 - pure `flag.Evaluate` in process
 
@@ -113,8 +113,9 @@ Freshness mechanisms:
 - Redis `PUBLISH` on `flags:changed` for peer invalidation
 - Full snapshot reload every `RELOAD_INTERVAL` (default 10s)
 
-If a reload returns an empty list while the snapshot is warm, the service keeps the warm snapshot.
-An empty list is treated as a blip, not a wipe.
+A successful empty `ListFlags` clears the warm snapshot.
+That matches Postgres as source of truth when every flag was deleted.
+Reload and pub/sub apply merge per flag by `UpdatedAt` so a late fetch cannot overwrite a newer write-through row.
 
 Fail-open versus fail-closed, as implemented:
 
@@ -170,6 +171,6 @@ Every evaluate already reads overrides from Postgres, so force on/off does not w
 | Redis not desired | No pub/sub. `/healthz` is `ok`. |
 | Postgres down | `/readyz` fails. Writes fail. Every evaluate fails because override lookup always queries Postgres, even when no override row exists. |
 | Missed pub/sub | Poll every `RELOAD_INTERVAL` bounds staleness. |
-| Empty `ListFlags` during reload | Warm snapshot kept. |
-| Concurrent override lookups | `singleflight` per `(flag, user)`. |
+| Empty `ListFlags` during reload | Snapshot cleared. |
+| Concurrent override lookups | `singleflight` per `(flag, user)` with a cancel-detached DB timeout. |
 | Bulk missing flag | Fail closed with 404. |
