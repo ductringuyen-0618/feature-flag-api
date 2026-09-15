@@ -1,0 +1,76 @@
+---
+description: Go file structure, package layout, and naming conventions
+globs: "**/*.{go,mod,sum}"
+alwaysApply: false
+---
+
+# Go Structure & Naming
+
+Follow Effective Go and the Go Code Review Comments. Prefer clarity over cleverness.
+
+## Package & File Layout
+
+- One package per directory; package name is a short, lowercase singular noun (`flag`, `store`, `cache`) — not `utils`, `common`, or `helpers`.
+- Directory name matches the package name.
+- Split files by responsibility within a package, not by type alone:
+  - `handler.go`, `service.go`, `store.go`, `models.go`, `errors.go`
+  - `*_test.go` beside the code under test
+- Keep `main` thin: put business logic in importable packages under `internal/` or `pkg/`.
+- Typical service layout:
+
+```text
+cmd/<service>/main.go
+internal/<domain>/
+  handler.go
+  service.go
+  store.go
+  models.go
+```
+
+- Avoid deep nesting; prefer flat packages with clear names.
+- Do not put multiple unrelated packages in one directory.
+
+## Naming: Functions & Methods
+
+- MixedCaps / mixedCaps only — never `snake_case` or `kebab-case`.
+- Exported: `CreateFlag`, `EvaluateForUser`. Unexported: `loadFromCache`, `parseID`.
+- Getters omit `Get`: prefer `Flag()` / `Name()`, not `GetFlag()` / `GetName()`. Exception: when needed to avoid a keyword or clash.
+- Prefer verbs for functions that do work: `Create`, `Enable`, `Evaluate`.
+- Receiver names are short (1–2 letters from the type): `func (s *Store)`, `func (h *Handler)` — not `this`, `self`, or the full type name.
+- Interface names: single-method interfaces often end in `-er` (`Evaluator`, `Storer`). Keep interfaces small and consumer-defined when practical.
+
+```go
+// ❌ BAD
+func get_user_flag(userId string) {}
+func (this *FlagService) GetName() string {}
+
+// ✅ GOOD
+func userFlag(userID string) {}
+func (s *FlagService) Name() string {}
+```
+
+## Naming: Variables & Constants
+
+- Short names for short scopes (`i`, `ctx`, `err`, `ok`); descriptive names for wider scopes.
+- Acronyms stay consistent case: `userID`, `HTTPClient`, `APIKey` — not `userId`, `HttpClient`.
+- Avoid stuttering with the package: `flag.New()` not `flag.NewFlag()`; `flag.Error` not `flag.FlagError` when clear.
+- Error variables: `ErrNotFound`, `errInvalidName`.
+- Constants: `MaxRetries`, `DefaultTTL` (exported MixedCaps; unexported mixedCaps). Prefer typed constants over bare magic numbers.
+
+```go
+// ❌ BAD
+var User_Id string
+const max_retries = 3
+err := errors.New("not found") // unclear reuse
+
+// ✅ GOOD
+var userID string
+const maxRetries = 3
+var ErrNotFound = errors.New("not found")
+```
+
+## Quick Checks
+
+- Exported identifiers need doc comments starting with the name.
+- `ctx context.Context` is the first parameter when present.
+- `error` is the last return value when present.
