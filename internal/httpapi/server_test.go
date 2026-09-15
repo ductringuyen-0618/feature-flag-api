@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -121,6 +122,44 @@ func TestBulkEvaluate(t *testing.T) {
 	}
 	if len(out.Results) != 2 {
 		t.Fatalf("results=%v", out.Results)
+	}
+}
+
+func TestRejectsInvalidIdentifiers(t *testing.T) {
+	h := newTestServer(t)
+	longName := strings.Repeat("a", 65)
+	cases := []struct {
+		title  string
+		method string
+		url    string
+		body   string
+		err    string
+	}{
+		{"create space", http.MethodPost, "/v1/flags", `{"name":"bad name","enabled":true}`, "invalid name"},
+		{"create too long", http.MethodPost, "/v1/flags", `{"name":"` + longName + `","enabled":true}`, "invalid name"},
+		{"path name", http.MethodGet, "/v1/flags/bad%20name", "", "invalid name"},
+		{"eval name", http.MethodGet, "/v1/evaluate/bad%20name?user_id=u", "", "invalid name"},
+		{"eval user", http.MethodGet, "/v1/evaluate/ok?user_id=bad%20user", "", "invalid user_id"},
+		{"override user", http.MethodPut, "/v1/flags/ok/users/bad%20user", `{"enabled":true}`, "invalid user_id"},
+		{"bulk flag", http.MethodPost, "/v1/evaluate", `{"user_id":"u","flags":["bad name"]}`, "invalid name"},
+		{"bulk user", http.MethodPost, "/v1/evaluate", `{"user_id":"bad user","flags":["ok"]}`, "invalid user_id"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.title, func(t *testing.T) {
+			req := httptest.NewRequest(tc.method, tc.url, bytes.NewBufferString(tc.body))
+			rr := httptest.NewRecorder()
+			h.ServeHTTP(rr, req)
+			if rr.Code != http.StatusBadRequest {
+				t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+			}
+			var out map[string]string
+			if err := json.Unmarshal(rr.Body.Bytes(), &out); err != nil {
+				t.Fatal(err)
+			}
+			if out["error"] != tc.err {
+				t.Fatalf("error=%q want %q", out["error"], tc.err)
+			}
+		})
 	}
 }
 
