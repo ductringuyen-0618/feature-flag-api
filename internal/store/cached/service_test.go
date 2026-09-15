@@ -17,7 +17,7 @@ func newService(t *testing.T, db store.FlagStore) *cached.Service {
 	if db == nil {
 		db = memory.New()
 	}
-	svc := cached.New(db, nil, time.Hour)
+	svc := cached.New(db, nil, time.Hour, false)
 	if err := svc.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +63,7 @@ func TestReloadKeepsSnapshotOnEmptyList(t *testing.T) {
 func TestEvaluateMissesSnapshotWithoutDBFill(t *testing.T) {
 	ctx := context.Background()
 	db := memory.New()
-	svc := cached.New(db, nil, time.Hour)
+	svc := cached.New(db, nil, time.Hour, false)
 
 	if _, err := db.CreateFlag(ctx, flag.Flag{Name: "only-in-db", Enabled: true, RolloutPercent: 100}); err != nil {
 		t.Fatal(err)

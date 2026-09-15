@@ -13,7 +13,7 @@ See [docs/architecture.md](docs/architecture.md).
 3. `fnv32a(flagName + ":" + userID) % 100 < rollout_percent`  
 4. Else boolean on  
 
-Warm evaluate reads flag config from RAM. Redis outage after boot → `/healthz` returns `degraded`; evaluations still succeed from the last snapshot. `/readyz` requires Postgres only.
+Warm evaluate reads flag config from RAM. If Redis is down after boot, `/healthz` returns `degraded`. A failed Redis connect with `REDIS_URL` set does the same. Evaluations still succeed from the last snapshot. `/readyz` pings Postgres. App Platform and Compose probe `/readyz`.
 
 ## Quick start
 
@@ -79,8 +79,8 @@ go test ./...
 | `DELETE` | `/v1/flags/{name}/users/{userID}` | Clear override |
 | `GET` | `/v1/evaluate/{name}?user_id=` | Single evaluate |
 | `POST` | `/v1/evaluate` | Bulk evaluate |
-| `GET` | `/healthz` | Liveness (`ok` / `degraded`) |
-| `GET` | `/readyz` | Postgres ready |
+| `GET` | `/healthz` | Process liveness. Body `status` is `ok` or `degraded`. HTTP 200 either way. |
+| `GET` | `/readyz` | Postgres ping. HTTP 200 when reachable. |
 
 **Auth:** none (intentional interview gap). Put a gateway or API key in front for production.
 
