@@ -14,8 +14,7 @@ import (
 )
 
 // Service is the application façade: Postgres SoT, in-memory flag snapshot,
-// Redis pub/sub + override cache. Evaluate never hits Postgres for flag config
-// on the warm path.
+// Redis pub/sub. Overrides are durable in Postgres only.
 type Service struct {
 	db    store.FlagStore
 	sync  *redissync.Sync // may be nil
@@ -83,15 +82,12 @@ func (s *Service) Reload(ctx context.Context) error {
 		next[f.Name] = f
 	}
 	s.mu.Lock()
-	// Guard: never wipe a non-empty snapshot with an empty list unless DB truly empty.
-	// ListFlags returning empty after a blip would be unusual for Postgres; still keep.
+	defer s.mu.Unlock()
+	// An empty ListFlags is more often a blip than a true wipe of a warm snapshot.
 	if len(next) == 0 && len(s.flags) > 0 {
-		// Re-check with a count-style list — if List succeeded empty, accept it.
-		s.flags = next
-	} else {
-		s.flags = next
+		return nil
 	}
-	s.mu.Unlock()
+	s.flags = next
 	return nil
 }
 
@@ -152,15 +148,7 @@ func (s *Service) GetFlag(ctx context.Context, name string) (flag.Flag, error) {
 	if ok {
 		return f, nil
 	}
-	// Fall through to DB (cold / race with delete).
-	f, err := s.db.GetFlag(ctx, name)
-	if err != nil {
-		return flag.Flag{}, err
-	}
-	s.mu.Lock()
-	s.flags[name] = f
-	s.mu.Unlock()
-	return f, nil
+	return s.db.GetFlag(ctx, name)
 }
 
 func (s *Service) ListFlags(ctx context.Context) ([]flag.Flag, error) {
@@ -181,9 +169,6 @@ func (s *Service) UpdateFlag(ctx context.Context, name string, enabled *bool, de
 	s.mu.Lock()
 	s.flags[out.Name] = out
 	s.mu.Unlock()
-	if s.sync != nil {
-		s.sync.InvalidateFlagOverrides(ctx, name)
-	}
 	s.publish(ctx, out.Name)
 	return out, nil
 }
@@ -195,9 +180,6 @@ func (s *Service) DeleteFlag(ctx context.Context, name string) error {
 	s.mu.Lock()
 	delete(s.flags, name)
 	s.mu.Unlock()
-	if s.sync != nil {
-		s.sync.InvalidateFlagOverrides(ctx, name)
-	}
 	s.publish(ctx, name)
 	return nil
 }
@@ -206,47 +188,21 @@ func (s *Service) SetOverride(ctx context.Context, o flag.Override) error {
 	if _, err := s.GetFlag(ctx, o.FlagName); err != nil {
 		return err
 	}
-	if err := s.db.SetOverride(ctx, o); err != nil {
-		return err
-	}
-	if s.sync != nil {
-		s.sync.SetOverride(ctx, o.FlagName, o.UserID, true, o.Enabled)
-	}
-	return nil
+	return s.db.SetOverride(ctx, o)
 }
 
 func (s *Service) DeleteOverride(ctx context.Context, flagName, userID string) error {
-	if err := s.db.DeleteOverride(ctx, flagName, userID); err != nil {
-		return err
-	}
-	if s.sync != nil {
-		s.sync.InvalidateOverride(ctx, flagName, userID)
-	}
-	return nil
+	return s.db.DeleteOverride(ctx, flagName, userID)
 }
 
 func (s *Service) getOverride(ctx context.Context, flagName, userID string) (*flag.Override, error) {
-	if s.sync != nil {
-		if enabled, found, ok := s.sync.GetOverride(ctx, flagName, userID); ok {
-			if !found {
-				return nil, nil
-			}
-			return &flag.Override{FlagName: flagName, UserID: userID, Enabled: enabled}, nil
-		}
-	}
 	v, err, _ := s.sf.Do(flagName+"\x00"+userID, func() (any, error) {
 		o, err := s.db.GetOverride(ctx, flagName, userID)
 		if errors.Is(err, store.ErrNotFound) {
-			if s.sync != nil {
-				s.sync.SetOverride(ctx, flagName, userID, false, false)
-			}
-			return (*flag.Override)(nil), nil
+			return nil, nil
 		}
 		if err != nil {
 			return nil, err
-		}
-		if s.sync != nil {
-			s.sync.SetOverride(ctx, flagName, userID, true, o.Enabled)
 		}
 		return &o, nil
 	})
@@ -259,11 +215,13 @@ func (s *Service) getOverride(ctx context.Context, flagName, userID string) (*fl
 	return v.(*flag.Override), nil
 }
 
-// Evaluate loads flag from snapshot and override from cache/DB, then runs pure eval.
+// Evaluate loads the flag from the snapshot and the override from Postgres.
 func (s *Service) Evaluate(ctx context.Context, flagName, userID string) (flag.Result, error) {
-	f, err := s.GetFlag(ctx, flagName)
-	if err != nil {
-		return flag.Result{}, err
+	s.mu.RLock()
+	f, ok := s.flags[flagName]
+	s.mu.RUnlock()
+	if !ok {
+		return flag.Result{}, store.ErrNotFound
 	}
 	ovr, err := s.getOverride(ctx, flagName, userID)
 	if err != nil {

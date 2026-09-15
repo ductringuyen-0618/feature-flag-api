@@ -36,9 +36,9 @@ func main() {
 	defer db.Close()
 
 	var syncClient *redissync.Sync
-	syncClient, err = redissync.New(ctx, cfg.RedisURL, cfg.OverrideTTL)
+	syncClient, err = redissync.New(ctx, cfg.RedisURL)
 	if err != nil {
-		slog.Warn("redis unavailable; running without pub/sub and override cache", "err", err)
+		slog.Warn("redis unavailable; running without pub/sub", "err", err)
 		syncClient = nil
 	} else {
 		defer syncClient.Close()
