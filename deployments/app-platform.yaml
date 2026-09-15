@@ -1,0 +1,31 @@
+name: feature-flag-api
+region: nyc
+services:
+  - name: api
+    github:
+      repo: ductringuyen-0618/feature-flag-api
+      branch: master
+      deploy_on_push: true
+    dockerfile_path: Dockerfile
+    http_port: 8080
+    instance_count: 2
+    instance_size_slug: basic-xxs
+    health_check:
+      http_path: /healthz
+      initial_delay_seconds: 10
+      period_seconds: 10
+    envs:
+      - key: PORT
+        value: "8080"
+      - key: RELOAD_INTERVAL
+        value: "10s"
+      - key: OVERRIDE_CACHE_TTL
+        value: "60s"
+      - key: DATABASE_URL
+        scope: RUN_TIME
+        type: SECRET
+        value: "CHANGE_ME_POSTGRES_URI"
+      - key: REDIS_URL
+        scope: RUN_TIME
+        type: SECRET
+        value: "CHANGE_ME_REDIS_URI"

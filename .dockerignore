@@ -1,0 +1,11 @@
+.env
+.env.*
+!.env.example
+!.env.template
+.git
+.github
+.cursor
+docs
+*.md
+!go.mod
+!go.sum
