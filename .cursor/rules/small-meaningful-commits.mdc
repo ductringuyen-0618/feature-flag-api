@@ -1,0 +1,41 @@
+---
+description: Prefer small, meaningful git commits for every logical change
+alwaysApply: true
+---
+
+# Small meaningful commits
+
+When making changes in this repo, commit in small logical units. Do not batch unrelated work into one commit.
+
+## Rules
+
+- One concern per commit (one bugfix, one endpoint, one config tweak, one doc fix).
+- Commit after each coherent unit of work finishes and tests for that unit pass when applicable.
+- Write a short message that states **why**, not a file list.
+- Never commit secrets (`.env`, tokens, credentials). Keep them gitignored.
+- Do not use `--no-verify` or skip hooks unless the user explicitly asks.
+- Do not amend commits that are already pushed unless the user explicitly asks.
+- Prefer several small commits over one large "WIP everything" commit before push.
+
+## Examples
+
+```text
+# BAD
+git commit -m "update stuff"
+
+# BAD (unrelated changes together)
+feat: add evaluate API, rewrite Dockerfile, and fix typo in README
+
+# GOOD
+feat: add bulk evaluate endpoint
+fix: reject empty flag names on create
+docs: document /readyz for App Platform health checks
+```
+
+## Workflow
+
+1. Make the smallest change that completes one concern.
+2. Stage only files for that concern.
+3. Commit with a focused message.
+4. Repeat for the next concern.
+5. Push when the user asks, or when a requested ship step needs it.
