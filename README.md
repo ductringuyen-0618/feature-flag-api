@@ -17,9 +17,12 @@ Warm evaluate reads flag config from RAM. If Redis is down after boot, `/healthz
 
 ## Quick start
 
+See [docs/VERIFY.md](docs/VERIFY.md) for local and production smoke checks.
+
 ```bash
 cp .env.example .env
 docker compose up --build
+./scripts/verify.sh http://127.0.0.1:8080
 ```
 
 API listens on `http://localhost:8080`.
