@@ -163,7 +163,7 @@ func (s *Service) GetFlag(ctx context.Context, name string) (flag.Flag, error) {
 
 func (s *Service) ListFlags(ctx context.Context) ([]flag.Flag, error) {
 	s.mu.RLock()
-	defer s.mu.Unlock()
+	defer s.mu.RUnlock()
 	out := make([]flag.Flag, 0, len(s.flags))
 	for _, f := range s.flags {
 		out = append(out, f)
