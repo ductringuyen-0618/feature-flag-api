@@ -1,18 +1,18 @@
 name: feature-flag-api
 region: nyc
 databases:
+  # Dev Postgres is allowed as an App Platform-managed database.
   - name: db
     engine: PG
     version: "16"
     size: db-s-dev-database
     num_nodes: 1
     production: false
+  # Valkey has no App Platform "dev" tier; attach an existing managed cluster.
   - name: valkey
     engine: VALKEY
-    version: "8"
-    size: db-s-dev-database
-    num_nodes: 1
-    production: false
+    production: true
+    cluster_name: feature-flag-valkey
 services:
   - name: api
     github:
