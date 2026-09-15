@@ -1,5 +1,6 @@
 .env
 bin/
+.local/
 *.exe
 .DS_Store
 coverage.out
