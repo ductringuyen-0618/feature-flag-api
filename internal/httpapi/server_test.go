@@ -17,7 +17,7 @@ import (
 func newTestServer(t *testing.T) http.Handler {
 	t.Helper()
 	db := memory.New()
-	svc := cached.New(db, nil, time.Hour)
+	svc := cached.New(db, nil, time.Hour, false)
 	if err := svc.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -131,5 +131,51 @@ func TestHealthz(t *testing.T) {
 	h.ServeHTTP(rr, req)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("healthz %d", rr.Code)
+	}
+	var body map[string]string
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body["status"] != "ok" {
+		t.Fatalf("status=%q", body["status"])
+	}
+}
+
+func TestHealthzDegradedWhenRedisWanted(t *testing.T) {
+	db := memory.New()
+	svc := cached.New(db, nil, time.Hour, true)
+	if err := svc.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	h := httpapi.New(svc)
+	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("healthz %d", rr.Code)
+	}
+	var body map[string]string
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body["status"] != "degraded" {
+		t.Fatalf("status=%q", body["status"])
+	}
+}
+
+func TestReadyz(t *testing.T) {
+	h := newTestServer(t)
+	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("readyz %d", rr.Code)
+	}
+	var body map[string]string
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body["status"] != "ready" {
+		t.Fatalf("status=%q", body["status"])
 	}
 }

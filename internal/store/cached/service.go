@@ -3,6 +3,7 @@ package cached
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -17,27 +18,27 @@ import (
 // Redis pub/sub + override cache. Evaluate never hits Postgres for flag config
 // on the warm path.
 type Service struct {
-	db    store.FlagStore
-	sync  *redissync.Sync // may be nil
-	reload time.Duration
+	db        store.FlagStore
+	sync      *redissync.Sync // may be nil
+	reload    time.Duration
+	wantRedis bool
 
 	mu    sync.RWMutex
 	flags map[string]flag.Flag
 
 	sf singleflight.Group
-
-	redisOK bool
 }
 
-func New(db store.FlagStore, syncClient *redissync.Sync, reload time.Duration) *Service {
+func New(db store.FlagStore, syncClient *redissync.Sync, reload time.Duration, wantRedis bool) *Service {
 	if reload <= 0 {
 		reload = 10 * time.Second
 	}
 	return &Service{
-		db:     db,
-		sync:   syncClient,
-		reload: reload,
-		flags:  map[string]flag.Flag{},
+		db:        db,
+		sync:      syncClient,
+		reload:    reload,
+		wantRedis: wantRedis,
+		flags:     map[string]flag.Flag{},
 	}
 }
 
@@ -46,10 +47,11 @@ func (s *Service) Start(ctx context.Context) error {
 		return err
 	}
 	if s.sync != nil {
-		s.redisOK = true
-		_ = s.sync.Subscribe(ctx, func(name string) {
+		if err := s.sync.Subscribe(ctx, func(name string) {
 			s.applyInvalidation(context.Background(), name)
-		})
+		}); err != nil {
+			slog.Warn("redis subscribe failed", "err", err)
+		}
 	}
 	go s.poll(ctx)
 	return nil
@@ -57,15 +59,16 @@ func (s *Service) Start(ctx context.Context) error {
 
 func (s *Service) Health(ctx context.Context) string {
 	if s.sync == nil {
+		if s.wantRedis {
+			return "degraded"
+		}
 		return "ok"
 	}
 	cctx, cancel := context.WithTimeout(ctx, 200*time.Millisecond)
 	defer cancel()
 	if err := s.sync.Ping(cctx); err != nil {
-		s.redisOK = false
 		return "degraded"
 	}
-	s.redisOK = true
 	return "ok"
 }
 

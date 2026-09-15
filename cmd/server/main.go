@@ -35,16 +35,19 @@ func main() {
 	}
 	defer db.Close()
 
+	wantRedis := cfg.RedisURL != ""
 	var syncClient *redissync.Sync
-	syncClient, err = redissync.New(ctx, cfg.RedisURL, cfg.OverrideTTL)
-	if err != nil {
-		slog.Warn("redis unavailable; running without pub/sub and override cache", "err", err)
-		syncClient = nil
-	} else {
-		defer syncClient.Close()
+	if wantRedis {
+		syncClient, err = redissync.New(ctx, cfg.RedisURL, cfg.OverrideTTL)
+		if err != nil {
+			slog.Warn("redis unavailable; running without pub/sub and override cache", "err", err)
+			syncClient = nil
+		} else {
+			defer syncClient.Close()
+		}
 	}
 
-	svc := cached.New(db, syncClient, cfg.ReloadInterval)
+	svc := cached.New(db, syncClient, cfg.ReloadInterval, wantRedis)
 	if err := svc.Start(ctx); err != nil {
 		slog.Error("service start", "err", err)
 		os.Exit(1)
