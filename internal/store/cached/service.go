@@ -82,15 +82,12 @@ func (s *Service) Reload(ctx context.Context) error {
 		next[f.Name] = f
 	}
 	s.mu.Lock()
-	// Guard: never wipe a non-empty snapshot with an empty list unless DB truly empty.
-	// ListFlags returning empty after a blip would be unusual for Postgres; still keep.
+	defer s.mu.Unlock()
+	// An empty ListFlags is more often a blip than a true wipe of a warm snapshot.
 	if len(next) == 0 && len(s.flags) > 0 {
-		// Re-check with a count-style list — if List succeeded empty, accept it.
-		s.flags = next
-	} else {
-		s.flags = next
+		return nil
 	}
-	s.mu.Unlock()
+	s.flags = next
 	return nil
 }
 

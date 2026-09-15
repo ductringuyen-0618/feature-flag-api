@@ -24,6 +24,42 @@ func newService(t *testing.T, db store.FlagStore) *cached.Service {
 	return svc
 }
 
+type listStub struct {
+	store.FlagStore
+	emptyList bool
+}
+
+func (s *listStub) ListFlags(ctx context.Context) ([]flag.Flag, error) {
+	if s.emptyList {
+		return nil, nil
+	}
+	return s.FlagStore.ListFlags(ctx)
+}
+
+func TestReloadKeepsSnapshotOnEmptyList(t *testing.T) {
+	ctx := context.Background()
+	db := memory.New()
+	stub := &listStub{FlagStore: db}
+	svc := newService(t, stub)
+
+	if _, err := svc.CreateFlag(ctx, flag.Flag{Name: "keep-me", Enabled: true, RolloutPercent: 100}); err != nil {
+		t.Fatal(err)
+	}
+
+	stub.emptyList = true
+	if err := svc.Reload(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := svc.ListFlags(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Name != "keep-me" {
+		t.Fatalf("snapshot after empty reload = %+v", got)
+	}
+}
+
 func TestOverrideReadsFromStore(t *testing.T) {
 	ctx := context.Background()
 	db := memory.New()
