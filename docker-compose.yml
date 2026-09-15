@@ -8,7 +8,6 @@ services:
       DATABASE_URL: postgres://flags:flags@postgres:5432/flags?sslmode=disable
       REDIS_URL: redis://redis:6379/0
       RELOAD_INTERVAL: 10s
-      OVERRIDE_CACHE_TTL: 60s
     depends_on:
       postgres:
         condition: service_healthy

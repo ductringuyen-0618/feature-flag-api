@@ -24,10 +24,9 @@ The app uses a DOCR image, not a GitHub source. App create with a GitHub repo fa
 | Var | Value |
 |-----|--------|
 | `DATABASE_URL` | Bindable Postgres URI (`sslmode=require` as provided) |
-| `REDIS_URL` | `rediss://...` TLS URI for managed cache |
+| `REDIS_URL` | Optional. `rediss://...` TLS URI for managed cache. Unset or empty skips pub/sub. |
 | `PORT` | `8080` (platform sets this; app reads `PORT`) |
 | `RELOAD_INTERVAL` | `10s` |
-| `OVERRIDE_CACHE_TTL` | `60s` |
 
 App Platform `health_check.http_path` is `/readyz`. That path pings Postgres. `/healthz` is process liveness and stays HTTP 200 with `ok` or `degraded`.
 

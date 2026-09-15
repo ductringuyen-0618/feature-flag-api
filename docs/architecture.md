@@ -42,7 +42,6 @@ Pure `flag.Evaluate` keeps rule A testable without I/O.
 Redis is optional acceleration for multi-replica freshness.
 If Redis is missing, poll still converges within `RELOAD_INTERVAL`.
 
-Config still parses `OVERRIDE_CACHE_TTL`, but the cached service does not use a Redis override cache.
 Overrides stay in Postgres so force on/off is correct as soon as the write commits.
 
 ## How a user gets on or off

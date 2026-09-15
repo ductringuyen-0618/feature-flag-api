@@ -35,8 +35,6 @@ services:
         value: "8080"
       - key: RELOAD_INTERVAL
         value: "10s"
-      - key: OVERRIDE_CACHE_TTL
-        value: "60s"
       - key: DATABASE_URL
         scope: RUN_TIME
         type: SECRET
