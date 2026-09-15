@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
 # Deploy feature-flag-api to DigitalOcean App Platform via doctl.
 # Requires: doctl >= 1.168, DIGITALOCEAN_ACCESS_TOKEN, GitHub app installed for the repo.
+# Creates a paid managed Valkey cluster if missing (Valkey has no App Platform "dev" DB tier).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SPEC="${ROOT}/deployments/app-platform.yaml"
 NAME="feature-flag-api"
+VALKEY_NAME="feature-flag-valkey"
+VALKEY_REGION="nyc1"
+VALKEY_SIZE="db-s-1vcpu-1gb"
 
 if [[ -f "${ROOT}/.env" ]]; then
   set -a
@@ -21,6 +25,23 @@ fi
 
 echo "Checking account..."
 doctl account get --format Email,Status,UUID
+
+echo "Ensuring managed Valkey cluster (${VALKEY_NAME})..."
+if doctl databases list --format Name --no-header | grep -qx "${VALKEY_NAME}"; then
+  echo "Valkey cluster already exists."
+else
+  echo "Creating Valkey (paid). This can take several minutes..."
+  doctl databases create "${VALKEY_NAME}" \
+    --engine valkey \
+    --version 8 \
+    --region "${VALKEY_REGION}" \
+    --size "${VALKEY_SIZE}" \
+    --num-nodes 1 \
+    --wait
+fi
+
+VALKEY_ID="$(doctl databases list --format ID,Name --no-header | awk -v n="${VALKEY_NAME}" '$2==n {print $1; exit}')"
+echo "Valkey ID: ${VALKEY_ID}"
 
 echo "Validating app spec..."
 doctl apps spec validate "$SPEC"
@@ -39,6 +60,12 @@ fi
 
 echo "App ID: ${APP_ID}"
 doctl apps get "$APP_ID" --format ID,DefaultIngress,ActiveDeployment.Phase
+
+# Trusted sources: allow the app to reach Valkey
+if [[ -n "${VALKEY_ID}" && -n "${APP_ID}" ]]; then
+  echo "Adding app firewall rule on Valkey (idempotent best-effort)..."
+  doctl databases firewalls append "${VALKEY_ID}" --rule "app:${APP_ID}" 2>/dev/null || true
+fi
 
 INGRESS="$(doctl apps get "$APP_ID" --format DefaultIngress --no-header)"
 echo "URL: ${INGRESS}"
