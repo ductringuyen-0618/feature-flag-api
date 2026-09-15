@@ -3,7 +3,6 @@ package config
 import (
 	"fmt"
 	"os"
-	"strconv"
 	"time"
 )
 
@@ -12,16 +11,14 @@ type Config struct {
 	DatabaseURL    string
 	RedisURL       string
 	ReloadInterval time.Duration
-	OverrideTTL    time.Duration
 }
 
 func Load() (Config, error) {
 	cfg := Config{
 		Port:           getenv("PORT", "8080"),
 		DatabaseURL:    os.Getenv("DATABASE_URL"),
-		RedisURL:       getenv("REDIS_URL", "redis://127.0.0.1:6379/0"),
+		RedisURL:       os.Getenv("REDIS_URL"),
 		ReloadInterval: 10 * time.Second,
-		OverrideTTL:    time.Minute,
 	}
 	if cfg.DatabaseURL == "" {
 		return Config{}, fmt.Errorf("DATABASE_URL is required")
@@ -33,13 +30,6 @@ func Load() (Config, error) {
 		}
 		cfg.ReloadInterval = d
 	}
-	if v := os.Getenv("OVERRIDE_CACHE_TTL"); v != "" {
-		d, err := time.ParseDuration(v)
-		if err != nil {
-			return Config{}, fmt.Errorf("OVERRIDE_CACHE_TTL: %w", err)
-		}
-		cfg.OverrideTTL = d
-	}
 	return cfg, nil
 }
 
@@ -48,15 +38,4 @@ func getenv(k, def string) string {
 		return v
 	}
 	return def
-}
-
-func MustInt(s string, def int) int {
-	if s == "" {
-		return def
-	}
-	n, err := strconv.Atoi(s)
-	if err != nil {
-		return def
-	}
-	return n
 }
