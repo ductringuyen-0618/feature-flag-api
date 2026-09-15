@@ -148,15 +148,7 @@ func (s *Service) GetFlag(ctx context.Context, name string) (flag.Flag, error) {
 	if ok {
 		return f, nil
 	}
-	// Fall through to DB (cold / race with delete).
-	f, err := s.db.GetFlag(ctx, name)
-	if err != nil {
-		return flag.Flag{}, err
-	}
-	s.mu.Lock()
-	s.flags[name] = f
-	s.mu.Unlock()
-	return f, nil
+	return s.db.GetFlag(ctx, name)
 }
 
 func (s *Service) ListFlags(ctx context.Context) ([]flag.Flag, error) {
